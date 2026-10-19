@@ -1,7 +1,7 @@
 -- ╔═══════════════════════════════════════════════════════════════╗
--- ║  Boomxico V9.0                                                ║
--- ║  🆕 แก้ระบบเกาะ: Raycast แม่นยำ ทะลุกำแพง ระยะไกล            ║
--- ║  🆕 เพิ่ม Hotkey เปิด/ปิด เมนูรายชื่อ (Player List)           ║
+-- ║  Boomxico V9.2                                                ║
+-- ║  🆕 ระบบเกาะ: เลือกเป้าหมายที่อยู่ใกล้เมาส์ที่สุด (ทะลุกำแพง)   ║
+-- ║  🆕 แก้ไข Hotkey เมนูรายชื่อให้ใช้งานได้ 100%                 ║
 -- ║  ฟีเจอร์ครบ: Speed / Fly / ESP / Names / Potato / Auto-Aim   ║
 -- ╚═══════════════════════════════════════════════════════════════╝
 do
@@ -76,14 +76,14 @@ do
     B.conns = {speed=nil, speedRS=nil, speedHB=nil, fly=nil, stick=nil,
                noclip=nil, bodyVel=nil, bodyGyro=nil, animTrack=nil}
 
-    B.STICK_ACT = "BoomStickHK_V90"
-    B.TOGGLE_ACT = "BoomToggleHK_V90"
-    B.LIST_ACT = "BoomListHK_V90"
+    B.STICK_ACT = "BoomStickHK_V92"
+    B.TOGGLE_ACT = "BoomToggleHK_V92"
+    B.LIST_ACT = "BoomListHK_V92"
     pcall(function()
         for _, n in ipairs({"StickTP_Hotkey","StickTP_Hotkey_v13","StickTP_Hotkey_v14",
-                            "BoomStickHK_V87","BoomStickHK_V88","BoomStickHK_V89","BoomStickHK_V895",
-                            "BoomToggleHK_V88","BoomToggleHK_V89","BoomToggleHK_V895",
-                            B.STICK_ACT, B.TOGGLE_ACT, B.LIST_ACT}) do
+                            "BoomStickHK_V87","BoomStickHK_V88","BoomStickHK_V89","BoomStickHK_V895","BoomStickHK_V90",
+                            "BoomToggleHK_V88","BoomToggleHK_V89","BoomToggleHK_V895","BoomToggleHK_V90",
+                            "BoomListHK_V90", B.STICK_ACT, B.TOGGLE_ACT, B.LIST_ACT}) do
             pcall(function() C:UnbindAction(n) end)
         end
     end)
@@ -289,7 +289,7 @@ do
         for k in pairs(B.dirs) do B.dirs[k] = false end
     end
 
-    -- ═══ STICK (Raycast แม่นยำ) ═══
+    -- ═══ STICK (หาคนใกล้เมาส์สุด) ═══
     local function getNearestPlayer()
         local myHRP = getHRP(LP); if not myHRP then return nil end
         local nearest, minD = nil, math.huge
@@ -305,31 +305,36 @@ do
         return nearest
     end
 
-    -- 🆕 Raycast ทะลุกำแพง แม่นยำ 100%
-    local function getPlayerUnderMouse()
+    -- 🆕 หาเป้าหมายที่อยู่ใกล้เมาส์ที่สุดบนหน้าจอ (ทะลุกำแพง 100%)
+    local function getPlayerClosestToMouse()
         if not U.MouseEnabled and not B.input.hasMouse then return nil end
         local cam = workspace.CurrentCamera
         local mousePos = U:GetMouseLocation()
-        local ray = cam:ViewportPointToRay(mousePos.X, mousePos.Y)
+        local closestPlayer = nil
+        local minDist = math.huge
         
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = {char, cam}
-        params.IgnoreWater = true
-        
-        -- ยิงไกล 5000 สตั๊ด ทะลุกำแพง
-        local result = workspace:Raycast(ray.Origin, ray.Direction * 5000, params)
-        
-        if result then
-            local hitPart = result.Instance
-            local mdl = hitPart:FindFirstAncestorOfClass("Model")
-            while mdl do
-                local pl = P:GetPlayerFromCharacter(mdl)
-                if pl and pl ~= LP then return pl end
-                mdl = mdl:FindFirstAncestorOfClass("Model")
+        for _, p in ipairs(P:GetPlayers()) do
+            if p ~= LP then
+                local h = getHRP(p)
+                if h then
+                    -- แปลงตำแหน่ง 3D ของศัตรู เป็นตำแหน่งบนหน้าจอ 2D
+                    local screenPos, onScreen = cam:WorldToViewportPoint(h.Position)
+                    if onScreen and screenPos.Z > 0 then
+                        -- คำนวณระยะห่างระหว่างเมาส์ กับตัวศัตรูบนหน้าจอ
+                        local dx = mousePos.X - screenPos.X
+                        local dy = mousePos.Y - screenPos.Y
+                        local dist2D = math.sqrt(dx*dx + dy*dy)
+                        
+                        -- กำหนดระยะห่างสูงสุดที่ยอมรับได้ (เช่น 250 พิกเซลจากเมาส์)
+                        if dist2D < minDist and dist2D < 250 then
+                            minDist = dist2D
+                            closestPlayer = p
+                        end
+                    end
+                end
             end
         end
-        return nil
+        return closestPlayer
     end
 
     local function getPlayerInSight()
@@ -356,27 +361,25 @@ do
         if not B.st.stick or not B.st.alive then return end
         local myHRP = getHRP(LP); if not myHRP then return end
         
+        -- 🆕 อัปเดตเป้าหมายตามเมาส์เป๊ะๆ (คนที่อยู่ใกล้เมาส์ที่สุด)
         if B.st.stickAutoAim then
-            local underMouse = getPlayerUnderMouse()
-            if underMouse and underMouse ~= B.st.stickTarget then
-                B.st.stickTarget = underMouse
+            local closest = getPlayerClosestToMouse()
+            if closest then
+                B.st.stickTarget = closest
                 if B.UI.refreshStickStatus then B.UI.refreshStickStatus() end
+            else
+                -- ถ้าเมาส์ไม่ได้เล็งใครเลย ให้หยุดวาปชั่วคราว
+                return 
             end
-            -- Fallback ถ้าไม่ได้เล็งใครเลย ให้หาคนในจอ
-            if not underMouse and B.st.stickTarget then
-                local inSight = getPlayerInSight()
-                if inSight and inSight ~= B.st.stickTarget then
-                    B.st.stickTarget = inSight
-                    if B.UI.refreshStickStatus then B.UI.refreshStickStatus() end
-                end
+        else
+            -- ถ้าปิด Auto-Aim ให้ทำงานแบบเดิม
+            if not B.st.stickTarget or not getHRP(B.st.stickTarget) then
+                B.st.stickTarget = getNearestPlayer()
+                if not B.st.stickTarget then return end
+                if B.UI.refreshStickStatus then B.UI.refreshStickStatus() end
             end
         end
         
-        if not B.st.stickTarget or not getHRP(B.st.stickTarget) then
-            B.st.stickTarget = getNearestPlayer()
-            if not B.st.stickTarget then return end
-            if B.UI.refreshStickStatus then B.UI.refreshStickStatus() end
-        end
         local tgtHRP = getHRP(B.st.stickTarget); if not tgtHRP then return end
         
         local angleRad = math.rad(B.st.stickAngle)
@@ -392,7 +395,7 @@ do
     local function startStick(t)
         if B.st.stick then return end
         B.st.stick = true
-        B.st.stickTarget = t or getPlayerUnderMouse() or getPlayerInSight() or getNearestPlayer()
+        B.st.stickTarget = t or getPlayerClosestToMouse() or getPlayerInSight() or getNearestPlayer()
         if not B.st.stickTarget then B.st.stick=false; return end
         if B.conns.stick then pcall(function() B.conns.stick:Disconnect() end) end
         B.conns.stick = R.Heartbeat:Connect(stickLoop)
@@ -428,7 +431,7 @@ do
         local n = tick(); if n - B.st.lastHK < 0.15 then return end
         B.st.lastHK = n
         if B.st.stick then stopStick(); return end
-        local t = getPlayerUnderMouse() or getFromAim() or getPlayerInSight() or getNearestPlayer()
+        local t = getPlayerClosestToMouse() or getFromAim() or getPlayerInSight() or getNearestPlayer()
         if t then startStick(t) end
     end
     local function bindStickHK(k)
@@ -679,7 +682,7 @@ do
 
     local title = Instance.new("TextButton")
     title.Size = UDim2.new(1,-20,0,S(42)); title.Position = UDim2.new(0,10,0,S(8))
-    title.BackgroundTransparency = 1; title.Text = "BY BOOMXICO V9.0"
+    title.BackgroundTransparency = 1; title.Text = "BY BOOMXICO V9.2"
     title.TextColor3 = CC.txt; title.TextStrokeTransparency = 0.4
     title.TextStrokeColor3 = Color3.fromRGB(0,0,0)
     title.Font = Enum.Font.GothamBold; title.TextSize = S(20)
@@ -1487,28 +1490,6 @@ do
         if B.UI.refreshHKLabels then B.UI.refreshHKLabels() end
     end
 
-    -- 🆕 Hotkey สำหรับเมนูรายชื่อ
-    local function onListHK()
-        if not B.st.alive then return end
-        if chk then
-            chk.Visible = not chk.Visible
-            if chk.Visible and refreshList then task.wait(0.05); refreshList() end
-        end
-    end
-    local function bindListHK(k)
-        pcall(function() C:UnbindAction(B.LIST_ACT) end)
-        B.st.listHK = k
-        if k then
-            pcall(function()
-                C:BindAction(B.LIST_ACT, function(_, s)
-                    if s == Enum.UserInputState.Begin then onListHK() end
-                    return Enum.ContextActionResult.Pass
-                end, false, k)
-            end)
-        end
-        if B.UI.refreshHKLabels then B.UI.refreshHKLabels() end
-    end
-
     -- Pad
     UI.pad = Instance.new("Frame")
     UI.pad.Size = UDim2.new(0, S(200), 0, S(200))
@@ -2177,6 +2158,6 @@ do
     checkInputNow()
     hkRow.Visible = shouldShowKeyboardUI()
 
-    print("[Boomxico V9.0] โหลดเสร็จ | Device:", dev, "| Scale:", scale,
+    print("[Boomxico V9.2] โหลดเสร็จ | Device:", dev, "| Scale:", scale,
           "| Keyboard:", B.input.hasKeyboard, "| Mouse:", B.input.hasMouse)
 end
