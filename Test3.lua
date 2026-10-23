@@ -1,10 +1,8 @@
 -- ╔═══════════════════════════════════════════════════════════════╗
--- ║  Boomxico V8.9                                                ║
--- ║  ฟีเจอร์: Speed / Fly / Stick / ESP / Names / Noclip / FPS   ║
--- ║  🆕 Potato Mode (Mobile-focused)                             ║
--- ║  🆕 Stick Rotate Slider + Manual Input                       ║
--- ║  🆕 Mobile Input Detection (USB OTG / Bluetooth)             ║
--- ║  🆕 Toggle Script Hotkey / Auto-Aim / Fly Keyboard Support   ║
+-- ║  Boomxico V10.1                                               ║
+-- ║  🆕 แก้บั๊กบินลอยฟ้า (Clear Velocity & Lock Y-axis)           ║
+-- ║  🆕 แก้ Hotkey ดีเลย์ (Real-time Toggle)                      ║
+-- ║  ฟีเจอร์ครบ: Speed / Fly / ESP / Names / Potato / Auto-Aim   ║
 -- ╚═══════════════════════════════════════════════════════════════╝
 do
     if not game:IsLoaded() then game.Loaded:Wait() end
@@ -38,11 +36,11 @@ do
     local B = {}
     B.st = {speed=false, fly=false, esp=false, name=false, noclip=false,
             fps=false, team=false, stick=false, alive=true, open=true,
-            espOpen=false, antiRec=false, antiRecBackup={},
+            hideBtnB=false, espOpen=false, antiRec=false, antiRecBackup={},
             runSpd=50, flySpd=50, nameDist=800, espIdx=1, stickDist=3,
             stickAngle=0,
             stickTarget=nil, stickHK=nil, stickWait=false,
-            toggleHK=nil, toggleWait=false,
+            toggleHK=nil, toggleWait=false, listHK=nil, listWait=false,
             waitSpeedHK=false, waitFlyHK=false,
             stickAutoAim=true,
             lastHK=0, spectateTarget=nil, spectateOn=false, specYaw=0,
@@ -50,11 +48,11 @@ do
 
     B.dirs = {F=false, B=false, L=false, R=false, U=false, D=false}
     B.pcK = {W=false, A=false, S=false, D=false, Space=false, Shift=false}
-    B.hotkeys = {speed={key=nil, pressed=false}, fly={key=nil, pressed=false}}
+    B.hotkeys = {speed={key=nil}, fly={key=nil}}
     B.saved = {speed=false, speedVal=50, fly=false, flyVal=50,
                esp=false, name=false, nameDist=800, noclip=false,
                fps=false, espIdx=1, team=false, stickDist=3, stickAngle=0,
-               antiRec=false}
+               antiRec=false, hideBtnB=false}
 
     B.colors = {
         bg=Color3.fromRGB(8,8,10), bgL=Color3.fromRGB(22,22,28),
@@ -78,45 +76,38 @@ do
     B.conns = {speed=nil, speedRS=nil, speedHB=nil, fly=nil, stick=nil,
                noclip=nil, bodyVel=nil, bodyGyro=nil, animTrack=nil}
 
-    B.STICK_ACT = "BoomStickHK_V89"
-    B.TOGGLE_ACT = "BoomToggleHK_V89"
+    B.STICK_ACT = "BoomStickHK_V101"
+    B.TOGGLE_ACT = "BoomToggleHK_V101"
+    B.LIST_ACT = "BoomListHK_V101"
     pcall(function()
         for _, n in ipairs({"StickTP_Hotkey","StickTP_Hotkey_v13","StickTP_Hotkey_v14",
-                            "BoomStickHK_V87","BoomStickHK_V88",
-                            "BoomToggleHK_V88", B.STICK_ACT, B.TOGGLE_ACT}) do
+                            "BoomStickHK_V87","BoomStickHK_V88","BoomStickHK_V89","BoomStickHK_V895","BoomStickHK_V90","BoomStickHK_V92","BoomStickHK_V100",
+                            "BoomToggleHK_V88","BoomToggleHK_V89","BoomToggleHK_V895","BoomToggleHK_V90","BoomToggleHK_V92","BoomToggleHK_V100",
+                            "BoomListHK_V90","BoomListHK_V92","BoomListHK_V100", B.STICK_ACT, B.TOGGLE_ACT, B.LIST_ACT}) do
             pcall(function() C:UnbindAction(n) end)
         end
     end)
 
+    -- 🆕 เอาระบบคูลดาวน์ออก ให้ Hotkey ทำงานทันที
     local function canT()
-        local n = tick()
-        if n - B.st.lastHK < 0.4 then return false end
-        B.st.lastHK = n
         return true
     end
+    
     local function clamp(v, a, b) if v<a then return a end if v>b then return b end return v end
     local function getHRP(p) if not p or not p.Parent then return nil end local c = p.Character return c and c:FindFirstChild("HumanoidRootPart") end
     local function espColor() return (B.espColors[B.st.espIdx] or B.espColors[1]).c end
 
-    -- ═══════════════════════════════════════════
-    -- 🆕 ระบบตรวจจับเมาส์/คีย์บอร์ด
-    -- ═══════════════════════════════════════════
+    -- ═══ INPUT DETECTION ═══
     B.input = {
-        isMobile = isMobile,
-        hasKeyboard = false,
-        hasMouse = false,
-        hasExtInput = false,
-        lastType = "Touch",
-        onChange = {},
+        isMobile = isMobile, hasKeyboard = false, hasMouse = false,
+        hasExtInput = false, lastType = "Touch", onChange = {},
     }
 
     local function notifyExtInput()
         local has = B.input.hasKeyboard or B.input.hasMouse
         if B.input.hasExtInput ~= has then
             B.input.hasExtInput = has
-            for _, cb in ipairs(B.input.onChange) do
-                pcall(cb, has, B.input)
-            end
+            for _, cb in ipairs(B.input.onChange) do pcall(cb, has, B.input) end
             if B.UI and B.UI.toast then
                 if has then
                     local parts = {}
@@ -132,14 +123,12 @@ do
 
     U.LastInputTypeChanged:Connect(function(inputType)
         if inputType == Enum.UserInputType.Keyboard then
-            B.input.hasKeyboard = true
-            B.input.lastType = "Keyboard"
+            B.input.hasKeyboard = true; B.input.lastType = "Keyboard"
         elseif inputType == Enum.UserInputType.MouseButton1
             or inputType == Enum.UserInputType.MouseButton2
             or inputType == Enum.UserInputType.MouseMovement
             or inputType == Enum.UserInputType.MouseWheel then
-            B.input.hasMouse = true
-            B.input.lastType = "Mouse"
+            B.input.hasMouse = true; B.input.lastType = "Mouse"
         elseif inputType == Enum.UserInputType.Touch then
             B.input.lastType = "Touch"
         end
@@ -149,33 +138,15 @@ do
     task.spawn(function()
         while B.st.alive do
             task.wait(1.5)
-            local kb = U.KeyboardEnabled
-            local ms = U.MouseEnabled
-            if not kb and B.input.hasKeyboard and B.input.lastType ~= "Keyboard" then
-                B.input.hasKeyboard = false
-            end
-            if not ms and B.input.hasMouse and B.input.lastType ~= "Mouse" then
-                B.input.hasMouse = false
-            end
+            if not U.KeyboardEnabled and B.input.hasKeyboard and B.input.lastType ~= "Keyboard" then B.input.hasKeyboard = false end
+            if not U.MouseEnabled and B.input.hasMouse and B.input.lastType ~= "Mouse" then B.input.hasMouse = false end
             notifyExtInput()
         end
     end)
 
-    function B.onInputChange(cb)
-        table.insert(B.input.onChange, cb)
-    end
-
-    local function shouldShowKeyboardUI()
-        return isPC or B.input.hasKeyboard or B.input.hasMouse
-    end
+    function B.onInputChange(cb) table.insert(B.input.onChange, cb) end
+    local function shouldShowKeyboardUI() return isPC or B.input.hasKeyboard or B.input.hasMouse end
     B.shouldShowKeyboardUI = shouldShowKeyboardUI
-
-    local function checkInputNow()
-        B.input.hasKeyboard = U.KeyboardEnabled
-        B.input.hasMouse = U.MouseEnabled
-        notifyExtInput()
-    end
-    -- ═══════════════════════════════════════════
 
     B.anim = hum:FindFirstChildOfClass("Animator")
     if not B.anim then B.anim = Instance.new("Animator"); B.anim.Parent = hum end
@@ -226,7 +197,7 @@ do
         if B.conns.speedHB then B.conns.speedHB:Disconnect(); B.conns.speedHB=nil end
     end
 
-    -- ═══ FLY ═══
+    -- ═══ FLY (แก้บั๊กลอยฟ้า) ═══
     local function getRunTrack()
         if not B.anim then return nil end
         for _, tr in pairs(B.anim:GetPlayingAnimationTracks()) do
@@ -238,28 +209,37 @@ do
         if ok then return tr end
         return nil
     end
-
-    local function hasKeyboardForFly()
-        return U.KeyboardEnabled or B.input.hasKeyboard
-    end
-    local function hasMouseForFly()
-        return U.MouseEnabled or B.input.hasMouse
-    end
+    local function hasKeyboardForFly() return U.KeyboardEnabled or B.input.hasKeyboard end
+    local function hasMouseForFly() return U.MouseEnabled or B.input.hasMouse end
 
     local function startFly()
         if B.conns.bodyVel then B.conns.bodyVel:Destroy() end
         if B.conns.bodyGyro then B.conns.bodyGyro:Destroy() end
+        
+        -- 🆕 เคลียร์ค่าค้างจากแอนิเมชัน/แร็คดอ
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            hrp.Velocity = Vector3.zero
+            hrp.RotVelocity = Vector3.zero
+        end
+        if hum then
+            hum.PlatformStand = false
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+        task.wait(0.05)
+
         B.conns.bodyVel = Instance.new("BodyVelocity")
         B.conns.bodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
         B.conns.bodyVel.Velocity = Vector3.zero; B.conns.bodyVel.P = 1250
         B.conns.bodyVel.Parent = hrp
+        
         B.conns.bodyGyro = Instance.new("BodyGyro")
         B.conns.bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
         B.conns.bodyGyro.P = 3000; B.conns.bodyGyro.D = 50
         B.conns.bodyGyro.CFrame = workspace.CurrentCamera.CFrame
         B.conns.bodyGyro.Parent = hrp
-        hum.PlatformStand = false
-        hum:ChangeState(Enum.HumanoidStateType.Running)
+        
         task.wait(0.1)
         B.conns.animTrack = getRunTrack()
         if B.conns.animTrack then
@@ -267,16 +247,19 @@ do
             B.conns.animTrack.Looped = true
             pcall(function() B.conns.animTrack:Play(0.1) end)
         end
-        if isMobile and B.UI.pad then
-            B.UI.pad.Visible = not (hasKeyboardForFly() or hasMouseForFly())
-        end
+        if isMobile and B.UI.pad then B.UI.pad.Visible = not (hasKeyboardForFly() or hasMouseForFly()) end
         if B.conns.fly then B.conns.fly:Disconnect() end
         B.conns.fly = R.RenderStepped:Connect(function()
             if not B.st.alive or not B.st.fly then return end
             if not B.conns.bodyVel or not B.conns.bodyGyro or not hrp or not hrp.Parent then return end
             if not hum or not hum.Parent then return end
-            hum:ChangeState(Enum.HumanoidStateType.Running)
+            
+            -- 🆕 ล็อค State ไว้ไม่ให้ลอยเอง
             hum.PlatformStand = false
+            if hum:GetState() ~= Enum.HumanoidStateType.Running then
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+            
             if B.conns.animTrack then
                 if not B.conns.animTrack.IsPlaying then pcall(function() B.conns.animTrack:Play(0.1) end) end
                 pcall(function() B.conns.animTrack:AdjustSpeed(math.clamp(B.st.flySpd/50, 0.5, 3)) end)
@@ -286,7 +269,7 @@ do
             local mv = Vector3.zero
             local useKB = hasKeyboardForFly()
             local useTouch = isMobile and not useKB
-
+            
             if useTouch then
                 if B.dirs.F then mv = mv + cam.CFrame.LookVector end
                 if B.dirs.B then mv = mv - cam.CFrame.LookVector end
@@ -295,7 +278,6 @@ do
                 if B.dirs.U then mv = mv + Vector3.new(0,1,0) end
                 if B.dirs.D then mv = mv - Vector3.new(0,1,0) end
             end
-
             if useKB then
                 if B.pcK.W then mv = mv + cam.CFrame.LookVector end
                 if B.pcK.S then mv = mv - cam.CFrame.LookVector end
@@ -304,11 +286,16 @@ do
                 if B.pcK.Space then mv = mv + Vector3.new(0,1,0) end
                 if B.pcK.Shift then mv = mv - Vector3.new(0,1,0) end
             end
-
+            
+            -- 🆕 ถ้าไม่ได้กดปุ่มอะไรเลย ให้หยุดนิ่งเป๊ะๆ (ไม่ลอยขึ้น)
             if mv.Magnitude > 0 then
                 local j = 1 + (math.random()-0.5)*0.03
                 B.conns.bodyVel.Velocity = mv.Unit * B.st.flySpd * j
-            else B.conns.bodyVel.Velocity = Vector3.zero end
+            else 
+                B.conns.bodyVel.Velocity = Vector3.zero 
+                -- ล็อค Y-axis ไม่ให้ลอย
+                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z)
+            end
         end)
     end
     local function stopFly()
@@ -316,7 +303,13 @@ do
         if B.conns.bodyVel then B.conns.bodyVel:Destroy(); B.conns.bodyVel=nil end
         if B.conns.bodyGyro then B.conns.bodyGyro:Destroy(); B.conns.bodyGyro=nil end
         if B.conns.animTrack then pcall(function() B.conns.animTrack:Stop(0.1) end); B.conns.animTrack=nil end
+        
         if hum and hum.Parent == char then
+            -- 🆕 เคลียร์ค่าความเร็วทั้งหมดตอนหยุดบิน
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
             hum.PlatformStand = false
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
             if B.st.speed and not B.st.stick then
@@ -327,7 +320,7 @@ do
         for k in pairs(B.dirs) do B.dirs[k] = false end
     end
 
-    -- ═══ STICK (พร้อม Rotate + Auto-Aim) ═══
+    -- ═══ STICK ═══
     local function getNearestPlayer()
         local myHRP = getHRP(LP); if not myHRP then return nil end
         local nearest, minD = nil, math.huge
@@ -343,17 +336,32 @@ do
         return nearest
     end
 
-    local function getPlayerUnderMouse()
+    local function getPlayerClosestToMouse()
         if not U.MouseEnabled and not B.input.hasMouse then return nil end
-        local m = LP:GetMouse()
-        if not m or not m.Target then return nil end
-        local mdl = m.Target:FindFirstAncestorOfClass("Model")
-        while mdl do
-            local pl = P:GetPlayerFromCharacter(mdl)
-            if pl and pl ~= LP then return pl end
-            mdl = mdl:FindFirstAncestorOfClass("Model")
+        local cam = workspace.CurrentCamera
+        local mousePos = U:GetMouseLocation()
+        local closestPlayer = nil
+        local minDist = math.huge
+        
+        for _, p in ipairs(P:GetPlayers()) do
+            if p ~= LP then
+                local h = getHRP(p)
+                if h then
+                    local screenPos, onScreen = cam:WorldToViewportPoint(h.Position)
+                    if onScreen and screenPos.Z > 0 then
+                        local dx = mousePos.X - screenPos.X
+                        local dy = mousePos.Y - screenPos.Y
+                        local dist2D = math.sqrt(dx*dx + dy*dy)
+                        
+                        if dist2D < minDist and dist2D < 250 then
+                            minDist = dist2D
+                            closestPlayer = p
+                        end
+                    end
+                end
+            end
         end
-        return nil
+        return closestPlayer
     end
 
     local function getPlayerInSight()
@@ -379,38 +387,39 @@ do
     local function stickLoop()
         if not B.st.stick or not B.st.alive then return end
         local myHRP = getHRP(LP); if not myHRP then return end
-
+        
         if B.st.stickAutoAim then
-            local underMouse = getPlayerUnderMouse()
-            local inSight = getPlayerInSight()
-            local newTarget = underMouse or inSight
-            if newTarget and newTarget ~= B.st.stickTarget then
-                B.st.stickTarget = newTarget
+            local closest = getPlayerClosestToMouse()
+            if closest then
+                B.st.stickTarget = closest
+                if B.UI.refreshStickStatus then B.UI.refreshStickStatus() end
+            else
+                return 
+            end
+        else
+            if not B.st.stickTarget or not getHRP(B.st.stickTarget) then
+                B.st.stickTarget = getNearestPlayer()
+                if not B.st.stickTarget then return end
                 if B.UI.refreshStickStatus then B.UI.refreshStickStatus() end
             end
         end
-
-        if not B.st.stickTarget or not getHRP(B.st.stickTarget) then
-            B.st.stickTarget = getNearestPlayer()
-            if not B.st.stickTarget then return end
-            if B.UI.refreshStickStatus then B.UI.refreshStickStatus() end
-        end
+        
         local tgtHRP = getHRP(B.st.stickTarget); if not tgtHRP then return end
-
-        -- 🆕 หมุนรอบตัวเป้าด้วยมุม (stickAngle)
+        
         local angleRad = math.rad(B.st.stickAngle)
         local baseCF = tgtHRP.CFrame
         local offset = CFrame.Angles(0, angleRad, 0) * CFrame.new(0, 0, B.st.stickDist)
         local newCF = baseCF * offset
         myHRP.CFrame = CFrame.new(newCF.Position, tgtHRP.Position)
-
+        
         myHRP.AssemblyLinearVelocity = Vector3.zero
         myHRP.AssemblyAngularVelocity = Vector3.zero
     end
+
     local function startStick(t)
         if B.st.stick then return end
         B.st.stick = true
-        B.st.stickTarget = t or getPlayerUnderMouse() or getPlayerInSight() or getNearestPlayer()
+        B.st.stickTarget = t or getPlayerClosestToMouse() or getPlayerInSight() or getNearestPlayer()
         if not B.st.stickTarget then B.st.stick=false; return end
         if B.conns.stick then pcall(function() B.conns.stick:Disconnect() end) end
         B.conns.stick = R.Heartbeat:Connect(stickLoop)
@@ -429,25 +438,10 @@ do
         if B.UI.refreshStickUI then B.UI.refreshStickUI() end
         if B.UI.refreshStickStatus then B.UI.refreshStickStatus() end
     end
-
-    local function getFromAim()
-        local m = LP:GetMouse()
-        if m and m.Target then
-            local mdl = m.Target:FindFirstAncestorOfClass("Model")
-            while mdl do
-                local pl = P:GetPlayerFromCharacter(mdl)
-                if pl and pl ~= LP then return pl end
-                mdl = mdl:FindFirstAncestorOfClass("Model")
-            end
-        end
-        return nil
-    end
     local function onStickHK()
         if not B.st.alive then return end
-        local n = tick(); if n - B.st.lastHK < 0.15 then return end
-        B.st.lastHK = n
         if B.st.stick then stopStick(); return end
-        local t = getFromAim() or getPlayerInSight() or getNearestPlayer()
+        local t = getPlayerClosestToMouse() or getPlayerInSight() or getNearestPlayer()
         if t then startStick(t) end
     end
     local function bindStickHK(k)
@@ -483,162 +477,96 @@ do
         end
     end
 
-    -- ═══ 🥔 POTATO MODE (Mobile-focused) ═══
-    -- ลดกราฟิกในแมพเท่านั้น ไม่แตะ FOV / Sky / กล้อง
+    -- ═══ POTATO MODE ═══
     B.fpsBackup = {}
     B.potatoActive = false
-
     local function enableFPS()
         if not B.st.fps or B.potatoActive then return end
         B.potatoActive = true
-
         local L = game:GetService("Lighting")
-
-        -- 1. Lighting: ลด Shadow + Ambient (ไม่แตะ Sky/Cloud/FogEnd/FOV)
-        table.insert(B.fpsBackup, {o=L, p="GlobalShadows", v=L.GlobalShadows})
-        L.GlobalShadows = false
-        table.insert(B.fpsBackup, {o=L, p="Brightness", v=L.Brightness})
-        L.Brightness = 1
-        table.insert(B.fpsBackup, {o=L, p="Ambient", v=L.Ambient})
-        L.Ambient = Color3.fromRGB(130,130,130)
-        table.insert(B.fpsBackup, {o=L, p="OutdoorAmbient", v=L.OutdoorAmbient})
-        L.OutdoorAmbient = Color3.fromRGB(130,130,130)
-        table.insert(B.fpsBackup, {o=L, p="EnvironmentDiffuseScale", v=L.EnvironmentDiffuseScale})
-        L.EnvironmentDiffuseScale = 0
-        table.insert(B.fpsBackup, {o=L, p="EnvironmentSpecularScale", v=L.EnvironmentSpecularScale})
-        L.EnvironmentSpecularScale = 0
-
-        -- 2. ปิด Effect ที่ไม่ใช้ (ไม่แตะ Sky)
+        table.insert(B.fpsBackup, {o=L, p="GlobalShadows", v=L.GlobalShadows}); L.GlobalShadows = false
+        table.insert(B.fpsBackup, {o=L, p="Brightness", v=L.Brightness}); L.Brightness = 1
+        table.insert(B.fpsBackup, {o=L, p="Ambient", v=L.Ambient}); L.Ambient = Color3.fromRGB(130,130,130)
+        table.insert(B.fpsBackup, {o=L, p="OutdoorAmbient", v=L.OutdoorAmbient}); L.OutdoorAmbient = Color3.fromRGB(130,130,130)
+        table.insert(B.fpsBackup, {o=L, p="EnvironmentDiffuseScale", v=L.EnvironmentDiffuseScale}); L.EnvironmentDiffuseScale = 0
+        table.insert(B.fpsBackup, {o=L, p="EnvironmentSpecularScale", v=L.EnvironmentSpecularScale}); L.EnvironmentSpecularScale = 0
         for _, ch in ipairs(L:GetChildren()) do
-            if ch:IsA("BloomEffect") or ch:IsA("BlurEffect")
-               or ch:IsA("ColorCorrectionEffect") or ch:IsA("SunRaysEffect")
-               or ch:IsA("DepthOfFieldEffect") then
-                table.insert(B.fpsBackup, {o=ch, p="Enabled", v=ch.Enabled})
-                pcall(function() ch.Enabled = false end)
+            if ch:IsA("BloomEffect") or ch:IsA("BlurEffect") or ch:IsA("ColorCorrectionEffect") or ch:IsA("SunRaysEffect") or ch:IsA("DepthOfFieldEffect") then
+                table.insert(B.fpsBackup, {o=ch, p="Enabled", v=ch.Enabled}); pcall(function() ch.Enabled = false end)
             end
         end
-
-        -- 3. ลด Particle / Effect / Trail / Beam
         for _, o in ipairs(workspace:GetDescendants()) do
-            if o:IsA("ParticleEmitter") or o:IsA("Fire") or o:IsA("Smoke")
-               or o:IsA("Sparkles") or o:IsA("Trail") or o:IsA("Beam") then
-                if o:IsA("ParticleEmitter") or o:IsA("Fire") or o:IsA("Smoke")
-                   or o:IsA("Sparkles") then
-                    if o.Enabled then
-                        table.insert(B.fpsBackup, {o=o, p="Enabled", v=true})
-                        o.Enabled = false
-                    end
-                else
-                    table.insert(B.fpsBackup, {o=o, p="Enabled", v=o.Enabled})
-                    pcall(function() o.Enabled = false end)
-                end
+            if o:IsA("ParticleEmitter") or o:IsA("Fire") or o:IsA("Smoke") or o:IsA("Sparkles") then
+                if o.Enabled then table.insert(B.fpsBackup, {o=o, p="Enabled", v=true}); o.Enabled = false end
+            elseif o:IsA("Trail") or o:IsA("Beam") then
+                table.insert(B.fpsBackup, {o=o, p="Enabled", v=o.Enabled}); pcall(function() o.Enabled = false end)
             end
         end
-
-        -- 4. ลด Material / Texture / Decal
         for _, o in ipairs(workspace:GetDescendants()) do
             if o:IsA("BasePart") then
                 if o.Material ~= Enum.Material.SmoothPlastic then
-                    table.insert(B.fpsBackup, {o=o, p="Material", v=o.Material})
-                    pcall(function() o.Material = Enum.Material.SmoothPlastic end)
+                    table.insert(B.fpsBackup, {o=o, p="Material", v=o.Material}); pcall(function() o.Material = Enum.Material.SmoothPlastic end)
                 end
                 if o:IsA("MeshPart") or o:IsA("Part") then
                     if o.TextureID and o.TextureID ~= "" then
-                        table.insert(B.fpsBackup, {o=o, p="TextureID", v=o.TextureID})
-                        pcall(function() o.TextureID = "" end)
+                        table.insert(B.fpsBackup, {o=o, p="TextureID", v=o.TextureID}); pcall(function() o.TextureID = "" end)
                     end
                 end
                 if o:IsA("MeshPart") then
-                    table.insert(B.fpsBackup, {o=o, p="RenderFidelity", v=o.RenderFidelity})
-                    pcall(function() o.RenderFidelity = Enum.RenderFidelity.Performance end)
-                end
-                -- ลด Reflectance / Transparency ของ Part
-                if o.Reflectance and o.Reflectance > 0 then
-                    table.insert(B.fpsBackup, {o=o, p="Reflectance", v=o.Reflectance})
-                    pcall(function() o.Reflectance = 0 end)
+                    table.insert(B.fpsBackup, {o=o, p="RenderFidelity", v=o.RenderFidelity}); pcall(function() o.RenderFidelity = Enum.RenderFidelity.Performance end)
                 end
             end
             if o:IsA("Decal") or o:IsA("Texture") then
-                table.insert(B.fpsBackup, {o=o, p="Transparency", v=o.Transparency})
-                pcall(function() o.Transparency = 1 end)
+                table.insert(B.fpsBackup, {o=o, p="Transparency", v=o.Transparency}); pcall(function() o.Transparency = 1 end)
             end
         end
-
-        -- 5. Terrain Water
         local terrain = workspace:FindFirstChildOfClass("Terrain")
         if terrain then
-            table.insert(B.fpsBackup, {o=terrain, p="WaterWaveSize", v=terrain.WaterWaveSize})
-            terrain.WaterWaveSize = 0
-            table.insert(B.fpsBackup, {o=terrain, p="WaterWaveSpeed", v=terrain.WaterWaveSpeed})
-            terrain.WaterWaveSpeed = 0
-            table.insert(B.fpsBackup, {o=terrain, p="WaterReflectance", v=terrain.WaterReflectance})
-            terrain.WaterReflectance = 0
-            table.insert(B.fpsBackup, {o=terrain, p="WaterTransparency", v=terrain.WaterTransparency})
-            terrain.WaterTransparency = 1
+            table.insert(B.fpsBackup, {o=terrain, p="WaterWaveSize", v=terrain.WaterWaveSize}); terrain.WaterWaveSize = 0
+            table.insert(B.fpsBackup, {o=terrain, p="WaterWaveSpeed", v=terrain.WaterWaveSpeed}); terrain.WaterWaveSpeed = 0
+            table.insert(B.fpsBackup, {o=terrain, p="WaterReflectance", v=terrain.WaterReflectance}); terrain.WaterReflectance = 0
+            table.insert(B.fpsBackup, {o=terrain, p="WaterTransparency", v=terrain.WaterTransparency}); terrain.WaterTransparency = 1
         end
-
-        -- 6. Character: ลด Texture ตัวละคร + ซ่อน Accessories
         for _, pl in ipairs(P:GetPlayers()) do
             if pl.Character then
                 for _, d in ipairs(pl.Character:GetDescendants()) do
                     if d:IsA("Decal") or d:IsA("Texture") then
-                        table.insert(B.fpsBackup, {o=d, p="Transparency", v=d.Transparency})
-                        pcall(function() d.Transparency = 1 end)
+                        table.insert(B.fpsBackup, {o=d, p="Transparency", v=d.Transparency}); pcall(function() d.Transparency = 1 end)
                     end
-                    if d:IsA("BasePart") then
-                        if d.Material ~= Enum.Material.SmoothPlastic then
-                            table.insert(B.fpsBackup, {o=d, p="Material", v=d.Material})
-                            pcall(function() d.Material = Enum.Material.SmoothPlastic end)
-                        end
+                    if d:IsA("BasePart") and d.Material ~= Enum.Material.SmoothPlastic then
+                        table.insert(B.fpsBackup, {o=d, p="Material", v=d.Material}); pcall(function() d.Material = Enum.Material.SmoothPlastic end)
                     end
                     if d:IsA("Accessory") or d:IsA("Hat") then
                         local handle = d:FindFirstChild("Handle")
                         if handle then
-                            table.insert(B.fpsBackup, {o=handle, p="Transparency", v=handle.Transparency})
-                            pcall(function() handle.Transparency = 1 end)
-                            table.insert(B.fpsBackup, {o=handle, p="LocalTransparencyModifier", v=handle.LocalTransparencyModifier})
-                            pcall(function() handle.LocalTransparencyModifier = 1 end)
+                            table.insert(B.fpsBackup, {o=handle, p="Transparency", v=handle.Transparency}); pcall(function() handle.Transparency = 1 end)
+                            table.insert(B.fpsBackup, {o=handle, p="LocalTransparencyModifier", v=handle.LocalTransparencyModifier}); pcall(function() handle.LocalTransparencyModifier = 1 end)
                         end
                     end
                 end
             end
         end
-
-        -- 7. Graphics Quality
         if settings then
-            pcall(function()
-                settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-            end)
-            pcall(function()
-                settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level01
-            end)
+            pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
+            pcall(function() settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level01 end)
         end
     end
-
     local function disableFPS()
         if not B.potatoActive then return end
         B.potatoActive = false
         for _, d in ipairs(B.fpsBackup) do
-            if d.o and d.o.Parent ~= nil then
-                pcall(function() d.o[d.p] = d.v end)
-            end
+            if d.o and d.o.Parent ~= nil then pcall(function() d.o[d.p] = d.v end) end
         end
         B.fpsBackup = {}
         if settings then
-            pcall(function()
-                settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
-            end)
-            pcall(function()
-                settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Automatic
-            end)
+            pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic end)
+            pcall(function() settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Automatic end)
         end
     end
 
     -- ═══ ESP ═══
     local function clearESP()
-        for _, o in ipairs(B.espObj) do
-            if o.hl and o.hl.Parent then o.hl:Destroy() end
-        end
+        for _, o in ipairs(B.espObj) do if o.hl and o.hl.Parent then o.hl:Destroy() end end
         B.espObj = {}
     end
     local function applyESP(c, tp)
@@ -652,19 +580,13 @@ do
         end
         local hl = Instance.new("Highlight")
         hl.Name = "BoomESP"; hl.Adornee = c
-        hl.FillColor = espColor()
-        hl.OutlineColor = Color3.fromRGB(255,255,255)
-        hl.FillTransparency = 0.4; hl.OutlineTransparency = 0
-        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.Parent = c
+        hl.FillColor = espColor(); hl.OutlineColor = Color3.fromRGB(255,255,255)
+        hl.FillTransparency = 0.4; hl.OutlineTransparency = 0; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; hl.Parent = c
         table.insert(B.espObj, {hl=hl, player=tp})
     end
     local function refreshESP()
-        clearESP()
-        if not B.st.esp then return end
-        for _, p in pairs(P:GetPlayers()) do
-            if p ~= LP and p.Character then applyESP(p.Character, p) end
-        end
+        clearESP(); if not B.st.esp then return end
+        for _, p in pairs(P:GetPlayers()) do if p ~= LP and p.Character then applyESP(p.Character, p) end end
     end
 
     -- ═══ NAMES ═══
@@ -678,24 +600,21 @@ do
         local h = c:FindFirstChild("Head"); if not h then return end
         local bg = Instance.new("BillboardGui")
         bg.Name = "BoomName"
-        bg.Size = UDim2.new(0, S(110), 0, S(24))
-        bg.StudsOffset = Vector3.new(0, 2.8, 0)
+        bg.Size = UDim2.new(0, S(90), 0, S(18))
+        bg.StudsOffset = Vector3.new(0, 2.6, 0)
         bg.AlwaysOnTop = true; bg.LightInfluence = 0
         bg.MaxDistance = B.st.nameDist; bg.Adornee = h; bg.Parent = h
         local l = Instance.new("TextLabel")
         l.Size = UDim2.new(1,0,1,0); l.BackgroundTransparency = 1
         l.Text = n or "?"; l.TextColor3 = CC.sil
-        l.TextStrokeTransparency = 0; l.TextStrokeColor3 = Color3.fromRGB(40,40,50)
-        l.Font = Enum.Font.GothamBold; l.TextSize = S(14); l.Parent = bg
+        l.TextStrokeTransparency = 0.5; l.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+        l.Font = Enum.Font.Gotham; l.TextSize = S(11); l.Parent = bg
         table.insert(B.nameObj, bg)
         table.insert(B.nameData, {gui=bg, head=h})
     end
     local function refreshNames()
-        clearNames()
-        if not B.st.name then return end
-        for _, p in pairs(P:GetPlayers()) do
-            if p ~= LP and p.Character then applyName(p.Character, p.Name, p) end
-        end
+        clearNames(); if not B.st.name then return end
+        for _, p in pairs(P:GetPlayers()) do if p ~= LP and p.Character then applyName(p.Character, p.Name, p) end end
     end
 
     -- ═══════════════════════════════════════════
@@ -711,17 +630,21 @@ do
     UI.gui.Parent = LP:WaitForChild("PlayerGui")
 
     UI.toggle = Instance.new("TextButton")
-    UI.toggle.Size = UDim2.new(0, S(55), 0, S(55))
-    UI.toggle.Position = UDim2.new(0, 20, 0, 100)
-    UI.toggle.BackgroundColor3 = CC.bg; UI.toggle.BackgroundTransparency = 0.4
-    UI.toggle.Text = "B"; UI.toggle.TextColor3 = CC.txt
-    UI.toggle.Font = Enum.Font.GothamBold; UI.toggle.TextSize = S(24)
-    UI.toggle.TextStrokeTransparency = 0.4
+    UI.toggle.Size = UDim2.new(0, S(32), 0, S(32))
+    UI.toggle.Position = UDim2.new(0, 15, 0, 120)
+    UI.toggle.BackgroundColor3 = CC.bg
+    UI.toggle.BackgroundTransparency = 0.75
+    UI.toggle.Text = "B"
+    UI.toggle.TextColor3 = CC.txtD
+    UI.toggle.TextTransparency = 0.3
+    UI.toggle.Font = Enum.Font.GothamBold
+    UI.toggle.TextSize = S(14)
+    UI.toggle.TextStrokeTransparency = 0.5
     UI.toggle.TextStrokeColor3 = Color3.fromRGB(0,0,0)
     UI.toggle.Active = true; UI.toggle.Draggable = true
     UI.toggle.Parent = UI.gui
     Instance.new("UICorner", UI.toggle).CornerRadius = UDim.new(1,0)
-    addGlow(UI.toggle, 0.5, true)
+    addGlow(UI.toggle, 0.8, false)
 
     UI.toast = function(msg, color)
         local t = Instance.new("TextLabel")
@@ -729,19 +652,13 @@ do
         t.Position = UDim2.new(0.5, -S(115), 0, S(80))
         t.BackgroundColor3 = Color3.fromRGB(15,15,20)
         t.BackgroundTransparency = 0.15
-        t.Text = msg
-        t.TextColor3 = color or CC.txt
-        t.Font = Enum.Font.GothamBold
-        t.TextSize = S(13)
-        t.TextStrokeTransparency = 0.5
-        t.TextStrokeColor3 = Color3.fromRGB(0,0,0)
-        t.ZIndex = 100
-        t.Parent = UI.gui
+        t.Text = msg; t.TextColor3 = color or CC.txt
+        t.Font = Enum.Font.GothamBold; t.TextSize = S(13)
+        t.TextStrokeTransparency = 0.5; t.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+        t.ZIndex = 100; t.Parent = UI.gui
         Instance.new("UICorner", t).CornerRadius = UDim.new(0,10)
         local s = Instance.new("UIStroke", t)
-        s.Color = color or CC.brd
-        s.Thickness = 1.5
-        s.Transparency = 0.3
+        s.Color = color or CC.brd; s.Thickness = 1.5; s.Transparency = 0.3
         task.spawn(function()
             task.wait(2)
             for i = 1, 20 do
@@ -775,7 +692,7 @@ do
 
     local title = Instance.new("TextButton")
     title.Size = UDim2.new(1,-20,0,S(42)); title.Position = UDim2.new(0,10,0,S(8))
-    title.BackgroundTransparency = 1; title.Text = "BY BOOMXICO V8.9"
+    title.BackgroundTransparency = 1; title.Text = "BY BOOMXICO V10.1"
     title.TextColor3 = CC.txt; title.TextStrokeTransparency = 0.4
     title.TextStrokeColor3 = Color3.fromRGB(0,0,0)
     title.Font = Enum.Font.GothamBold; title.TextSize = S(20)
@@ -838,7 +755,6 @@ do
         return b
     end
 
-    -- Input Status Label
     local inputStatusLbl = Instance.new("TextLabel")
     inputStatusLbl.Size = UDim2.new(0.9,0,0,S(20))
     inputStatusLbl.BackgroundTransparency = 1
@@ -903,7 +819,6 @@ do
     UI.stickStat.TextTruncate = Enum.TextTruncate.AtEnd
     UI.stickStat.Parent = stickRow
 
-    -- 🆕 Row: Auto-Aim + ระยะ
     local stickOptionRow = Instance.new("Frame")
     stickOptionRow.BackgroundTransparency = 1; stickOptionRow.Parent = stickRow
 
@@ -915,7 +830,6 @@ do
     UI.autoAimBtn.Parent = stickOptionRow
     Instance.new("UICorner", UI.autoAimBtn).CornerRadius = UDim.new(0,8)
 
-    -- ระยะเกาะ (slider + ช่องตัวเลข)
     UI.stDistLbl = Instance.new("TextLabel")
     UI.stDistLbl.BackgroundTransparency = 1
     UI.stDistLbl.Text = "ระยะ: 3"; UI.stDistLbl.TextColor3 = Color3.fromRGB(200,220,255)
@@ -955,7 +869,6 @@ do
     stSliderHB.BackgroundTransparency = 1; stSliderHB.Text = ""; stSliderHB.ZIndex = 10
     stSliderHB.Parent = stSliderBg
 
-    -- 🆕 Angle Row
     UI.angleLbl = Instance.new("TextLabel")
     UI.angleLbl.BackgroundTransparency = 1
     UI.angleLbl.Text = "มุม: 0° (หลัง)"; UI.angleLbl.TextColor3 = Color3.fromRGB(180,220,255)
@@ -995,7 +908,6 @@ do
     angleHB.BackgroundTransparency = 1; angleHB.Text = ""; angleHB.ZIndex = 10
     angleHB.Parent = angleBg
 
-    -- Layout function
     local function layoutStickRow()
         local hasExt = shouldShowKeyboardUI()
         if isPC then
@@ -1077,7 +989,6 @@ do
         UI.angleBox.Text = tostring(math.floor(v))
     end
 
-    -- Slider handlers
     local dragS = false
     stSliderHB.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
@@ -1093,12 +1004,7 @@ do
         end
     end)
     stSliderHB.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            dragS = false
-        end
-    end)
-    U.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.Touch then dragS = false end
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragS = false end
     end)
 
     local dragA = false
@@ -1116,12 +1022,9 @@ do
         end
     end)
     angleHB.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            dragA = false
-        end
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragA = false end
     end)
 
-    -- TextBox handlers
     UI.stDistBox.FocusLost:Connect(function()
         local v = tonumber(UI.stDistBox.Text)
         if v then setStDist(v) else setStDist(B.st.stickDist) end
@@ -1160,9 +1063,7 @@ do
             UI.stickHK.Text = "⌨ " .. B.st.stickHK.Name
             UI.stickHK.BackgroundColor3 = Color3.fromRGB(60,140,90)
         else
-            if isPC then
-                UI.stickHK.Text = "⌨ ตั้งปุ่ม"
-            elseif shouldShowKeyboardUI() then
+            if isPC or shouldShowKeyboardUI() then
                 UI.stickHK.Text = "⌨ ตั้งปุ่ม"
             else
                 UI.stickHK.Text = "⌨ ต้องต่อคีย์บอร์ด"
@@ -1171,34 +1072,23 @@ do
         end
     end
 
-    UI.stickBtn.MouseButton1Click:Connect(function()
-        if B.st.stick then stopStick() else startStick(nil) end
-    end)
+    UI.stickBtn.MouseButton1Click:Connect(function() if B.st.stick then stopStick() else startStick(nil) end end)
     UI.stickHK.MouseButton1Click:Connect(function()
-        if not shouldShowKeyboardUI() then
-            UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80))
-            return
-        end
-        B.st.stickWait = true
-        B.st.waitSpeedHK = false
-        B.st.waitFlyHK = false
-        B.st.toggleWait = false
+        if not shouldShowKeyboardUI() then UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80)) return end
+        B.st.stickWait = true; B.st.waitSpeedHK = false; B.st.waitFlyHK = false; B.st.toggleWait = false; B.st.listWait = false
         UI.refreshStickHKBtn()
     end)
     UI.autoAimBtn.MouseButton1Click:Connect(function()
         B.st.stickAutoAim = not B.st.stickAutoAim
         if B.st.stickAutoAim then
-            UI.autoAimBtn.Text = "🎯 Auto-Aim: เปิด"
-            UI.autoAimBtn.BackgroundColor3 = Color3.fromRGB(60,120,80)
+            UI.autoAimBtn.Text = "🎯 Auto-Aim: เปิด"; UI.autoAimBtn.BackgroundColor3 = Color3.fromRGB(60,120,80)
         else
-            UI.autoAimBtn.Text = "🎯 Auto-Aim: ปิด"
-            UI.autoAimBtn.BackgroundColor3 = Color3.fromRGB(90,60,60)
+            UI.autoAimBtn.Text = "🎯 Auto-Aim: ปิด"; UI.autoAimBtn.BackgroundColor3 = Color3.fromRGB(90,60,60)
         end
     end)
 
     layoutStickRow()
-    setStDist(3)
-    setStickAngle(0)
+    setStDist(3); setStickAngle(0)
 
     -- Speed Row
     local row1 = Instance.new("Frame")
@@ -1252,7 +1142,6 @@ do
     Instance.new("UICorner", UI.flyBox).CornerRadius = UDim.new(0,10)
     addGlow(UI.flyBox, 0.7, false)
 
-    -- Fly Hint
     local flyHint = Instance.new("TextLabel")
     flyHint.Size = UDim2.new(0.9,0,0,S(16))
     flyHint.BackgroundTransparency = 1
@@ -1263,9 +1152,9 @@ do
     flyHint.LayoutOrder = 2.5
     flyHint.Parent = cont
 
-    -- Hotkey Row
+    -- Hotkey Row (เอาปุ่มรายชื่อออกแล้ว)
     local hkRow = Instance.new("Frame")
-    hkRow.Size = UDim2.new(0.9,0,0,S(56))
+    hkRow.Size = UDim2.new(0.9,0,0,S(86))
     hkRow.BackgroundColor3 = Color3.fromRGB(18,18,25)
     hkRow.BackgroundTransparency = 0.4
     hkRow.LayoutOrder = 3
@@ -1283,9 +1172,9 @@ do
     hkTitle.TextXAlignment = Enum.TextXAlignment.Left
     hkTitle.Parent = hkRow
 
-    local function mkHK(txt, x, w)
+    local function mkHK(txt, x, y, w)
         local b = Instance.new("TextButton")
-        b.Size = UDim2.new(w,0,0,S(24)); b.Position = UDim2.new(x,0,0,S(20))
+        b.Size = UDim2.new(w,0,0,S(24)); b.Position = UDim2.new(x,0,0,y)
         b.BackgroundColor3 = CC.bgL; b.BackgroundTransparency = 0.5
         b.Text = txt; b.TextColor3 = CC.txtD
         b.TextStrokeTransparency = 0.5; b.TextStrokeColor3 = Color3.fromRGB(0,0,0)
@@ -1311,53 +1200,38 @@ do
         end
     end
 
-    hkSpdB = mkHK("⌨ วิ่ง", 0.01, 0.23)
-    hkFlyB = mkHK("⌨ บิน", 0.25, 0.23)
-    hkToggleB = mkHK("⌨ ซ่อน", 0.49, 0.23)
+    hkSpdB = mkHK("⌨ วิ่ง", 0.01, 20, 0.23)
+    hkFlyB = mkHK("⌨ บิน", 0.25, 20, 0.23)
+    hkToggleB = mkHK("⌨ ซ่อน", 0.49, 20, 0.23)
 
     hkClr = Instance.new("TextButton")
-    hkClr.Size = UDim2.new(0.26,0,0,S(24)); hkClr.Position = UDim2.new(0.73,0,0,S(20))
+    hkClr.Size = UDim2.new(0.48,0,0,S(24)); hkClr.Position = UDim2.new(0.01,0,0,S(48))
     hkClr.BackgroundColor3 = CC.dgr; hkClr.BackgroundTransparency = 0.5
-    hkClr.Text = "⌨ ลบ"; hkClr.TextColor3 = Color3.fromRGB(255,130,130)
+    hkClr.Text = "⌨ ลบ Hotkey ทั้งหมด"; hkClr.TextColor3 = Color3.fromRGB(255,130,130)
     hkClr.Font = Enum.Font.Gotham; hkClr.TextSize = S(10); hkClr.Parent = hkRow
     Instance.new("UICorner", hkClr).CornerRadius = UDim.new(0,8)
 
     hkSpdB.MouseButton1Click:Connect(function()
-        if not shouldShowKeyboardUI() then
-            UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80))
-            return
-        end
-        B.st.waitSpeedHK = true; B.st.waitFlyHK = false
-        B.st.stickWait = false; B.st.toggleWait = false
-        hkSpdB.Text = "⌨ กดปุ่ม..."
-        hkSpdB.BackgroundColor3 = Color3.fromRGB(200,130,40)
+        if not shouldShowKeyboardUI() then UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80)) return end
+        B.st.waitSpeedHK = true; B.st.waitFlyHK = false; B.st.stickWait = false; B.st.toggleWait = false; B.st.listWait = false
+        hkSpdB.Text = "⌨ กดปุ่ม..."; hkSpdB.BackgroundColor3 = Color3.fromRGB(200,130,40)
         UI.refreshStickHKBtn()
     end)
     hkFlyB.MouseButton1Click:Connect(function()
-        if not shouldShowKeyboardUI() then
-            UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80))
-            return
-        end
-        B.st.waitFlyHK = true; B.st.waitSpeedHK = false
-        B.st.stickWait = false; B.st.toggleWait = false
-        hkFlyB.Text = "⌨ กดปุ่ม..."
-        hkFlyB.BackgroundColor3 = Color3.fromRGB(200,130,40)
+        if not shouldShowKeyboardUI() then UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80)) return end
+        B.st.waitFlyHK = true; B.st.waitSpeedHK = false; B.st.stickWait = false; B.st.toggleWait = false; B.st.listWait = false
+        hkFlyB.Text = "⌨ กดปุ่ม..."; hkFlyB.BackgroundColor3 = Color3.fromRGB(200,130,40)
         UI.refreshStickHKBtn()
     end)
     hkToggleB.MouseButton1Click:Connect(function()
-        if not shouldShowKeyboardUI() then
-            UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80))
-            return
-        end
-        B.st.toggleWait = true; B.st.waitSpeedHK = false
-        B.st.waitFlyHK = false; B.st.stickWait = false
-        hkToggleB.Text = "⌨ กดปุ่ม..."
-        hkToggleB.BackgroundColor3 = Color3.fromRGB(200,130,40)
+        if not shouldShowKeyboardUI() then UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80)) return end
+        B.st.toggleWait = true; B.st.waitSpeedHK = false; B.st.waitFlyHK = false; B.st.stickWait = false; B.st.listWait = false
+        hkToggleB.Text = "⌨ กดปุ่ม..."; hkToggleB.BackgroundColor3 = Color3.fromRGB(200,130,40)
         UI.refreshStickHKBtn()
     end)
     hkClr.MouseButton1Click:Connect(function()
-        B.hotkeys.speed.key = nil; B.hotkeys.speed.pressed = false
-        B.hotkeys.fly.key = nil;   B.hotkeys.fly.pressed = false
+        B.hotkeys.speed.key = nil
+        B.hotkeys.fly.key = nil
         B.st.toggleHK = nil
         pcall(function() C:UnbindAction(B.TOGGLE_ACT) end)
         refreshHKLabels()
@@ -1503,6 +1377,12 @@ do
     UI.fpsBtn.BackgroundColor3 = Color3.fromRGB(60,40,20)
     UI.fpsBtn.TextColor3 = Color3.fromRGB(255,220,150)
     UI.fpsBtn.Font = Enum.Font.GothamBold
+
+    UI.hideBtnBToggle = newBtn("ซ่อนปุ่ม B (ใช้ Hotkey แทน)"); UI.hideBtnBToggle.LayoutOrder = 8.5
+    UI.hideBtnBToggle.BackgroundColor3 = Color3.fromRGB(30,50,80)
+    UI.hideBtnBToggle.TextColor3 = Color3.fromRGB(150,200,255)
+    UI.hideBtnBToggle.Font = Enum.Font.GothamMedium
+
     local openListBtn = newBtn("เปิดเมนูรายชื่อ"); openListBtn.LayoutOrder = 9
     local killBtn = newBtn("ปิดสคริปต์ทั้งหมด"); killBtn.LayoutOrder = 10
     killBtn.BackgroundColor3 = CC.dgr; killBtn.BackgroundTransparency = 0.3
@@ -1541,43 +1421,58 @@ do
     addGlow(antiReturnBtn, 0.5, false)
 
     local function setAntiRec(on)
-        B.st.antiRec = on
-        B.saved.antiRec = on
+        B.st.antiRec = on; B.saved.antiRec = on
         if on then
-            B.st.antiRecBackup = {
-                guiEnabled = UI.gui.Enabled,
-                esp = B.st.esp,
-                name = B.st.name,
-            }
+            B.st.antiRecBackup = {guiEnabled = UI.gui.Enabled, esp = B.st.esp, name = B.st.name}
             if B.st.esp then B.st.esp = false; clearESP() end
             if B.st.name then B.st.name = false; clearNames() end
-            UI.gui.Enabled = false
-            antiScreen.Enabled = true
+            UI.gui.Enabled = false; antiScreen.Enabled = true
         else
             local bk = B.st.antiRecBackup or {}
             UI.gui.Enabled = bk.guiEnabled ~= false
             if bk.esp then B.st.esp = true; refreshESP() end
             if bk.name then B.st.name = true; refreshNames() end
-            antiScreen.Enabled = false
-            B.st.antiRecBackup = {}
+            antiScreen.Enabled = false; B.st.antiRecBackup = {}
         end
         antiBtn.Text = on and "กันถ่ายจอ: เปิด" or "กันถ่ายจอ: ปิด"
         antiBtn.BackgroundColor3 = on and CC.act or Color3.fromRGB(30,15,45)
     end
 
-    antiBtn.MouseButton1Click:Connect(function()
-        setAntiRec(not B.st.antiRec)
+    antiBtn.MouseButton1Click:Connect(function() setAntiRec(not B.st.antiRec) end)
+    antiReturnBtn.MouseButton1Click:Connect(function() setAntiRec(false) end)
+
+    local function refreshHideBtnB()
+        if B.st.hideBtnB then
+            UI.hideBtnBToggle.Text = "ซ่อนปุ่ม B: เปิด (ใช้ Hotkey)"
+            UI.hideBtnBToggle.BackgroundColor3 = Color3.fromRGB(80,30,30)
+            UI.hideBtnBToggle.TextColor3 = Color3.fromRGB(255,150,150)
+            UI.toggle.Visible = false
+        else
+            UI.hideBtnBToggle.Text = "ซ่อนปุ่ม B: ปิด (โชว์ปุ่ม)"
+            UI.hideBtnBToggle.BackgroundColor3 = Color3.fromRGB(30,50,80)
+            UI.hideBtnBToggle.TextColor3 = Color3.fromRGB(150,200,255)
+            UI.toggle.Visible = B.st.open
+        end
+    end
+    refreshHideBtnB()
+
+    UI.hideBtnBToggle.MouseButton1Click:Connect(function()
+        B.st.hideBtnB = not B.st.hideBtnB
+        B.saved.hideBtnB = B.st.hideBtnB
+        refreshHideBtnB()
+        UI.toast(B.st.hideBtnB and "ซ่อนปุ่ม B แล้ว (ใช้ Hotkey เปิด)" or "โชว์ปุ่ม B แล้ว", Color3.fromRGB(150,200,255))
     end)
 
-    antiReturnBtn.MouseButton1Click:Connect(function()
-        setAntiRec(false)
-    end)
-
-    -- Toggle Hotkey
-    local function onToggleHK()
-        if not B.st.alive then return end
+    local function doToggleMenu()
         B.st.open = not B.st.open
         UI.main.Visible = B.st.open
+        if B.st.hideBtnB then UI.toggle.Visible = false
+        else UI.toggle.Visible = B.st.open end
+    end
+
+    local function onToggleHK()
+        if not B.st.alive then return end
+        doToggleMenu()
     end
     local function bindToggleHK(k)
         pcall(function() C:UnbindAction(B.TOGGLE_ACT) end)
@@ -1593,7 +1488,7 @@ do
         if B.UI.refreshHKLabels then B.UI.refreshHKLabels() end
     end
 
-    -- Pad (Mobile Fly)
+    -- Pad
     UI.pad = Instance.new("Frame")
     UI.pad.Size = UDim2.new(0, S(200), 0, S(200))
     UI.pad.Position = UDim2.new(1, -S(220), 0.5, -S(100))
@@ -1616,14 +1511,10 @@ do
         b.Size = UDim2.new(0, S(58), 0, S(58))
         b.BackgroundColor3 = Color3.fromRGB(60, 40, 0)
         b.BackgroundTransparency = 0.3
-        b.Text = txt
-        b.TextColor3 = CC.txt
-        b.TextStrokeTransparency = 0.5
-        b.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-        b.Font = Enum.Font.GothamBold
-        b.TextSize = S(20)
-        b.LayoutOrder = order
-        b.Parent = UI.pad
+        b.Text = txt; b.TextColor3 = CC.txt
+        b.TextStrokeTransparency = 0.5; b.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        b.Font = Enum.Font.GothamBold; b.TextSize = S(20)
+        b.LayoutOrder = order; b.Parent = UI.pad
         Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
         addGlow(b, 0.6, false)
         return b
@@ -1632,9 +1523,7 @@ do
     local function mkSpacer(order)
         local f = Instance.new("Frame")
         f.Size = UDim2.new(0, S(58), 0, S(58))
-        f.BackgroundTransparency = 1
-        f.LayoutOrder = order
-        f.Parent = UI.pad
+        f.BackgroundTransparency = 1; f.LayoutOrder = order; f.Parent = UI.pad
     end
 
     mkSpacer(1)
@@ -1660,7 +1549,7 @@ do
     bindP(bU,"U"); bindP(bD,"D"); bindP(bL,"L"); bindP(bR,"R"); bindP(bF,"F"); bindP(bB,"B")
 
     local function toggleSpeed()
-        if not canT() or not hum or not hum.Parent then return end
+        if not hum or not hum.Parent then return end
         B.st.speed = not B.st.speed
         UI.spdBtn.Text = B.st.speed and "วิ่งไว: เปิด" or "วิ่งไว: ปิด"
         UI.spdBtn.BackgroundColor3 = B.st.speed and CC.act or CC.bgL
@@ -1669,7 +1558,6 @@ do
         else stopSpd(); hum.WalkSpeed = 16 end
     end
     local function toggleFly()
-        if not canT() then return end
         B.st.fly = not B.st.fly
         UI.flyBtn.Text = B.st.fly and "บินได้: เปิด" or "บินได้: ปิด"
         UI.flyBtn.BackgroundColor3 = B.st.fly and CC.act or CC.bgL
@@ -1710,45 +1598,35 @@ do
         if gp then return end
 
         if B.st.waitSpeedHK then
-            if i.KeyCode == Enum.KeyCode.Escape then
-                B.st.waitSpeedHK = false
-            elseif i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then
-                B.hotkeys.speed.key = nil; B.st.waitSpeedHK = false
-            elseif i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then
-                B.hotkeys.speed.key = i.KeyCode; B.st.waitSpeedHK = false
-            end
+            if i.KeyCode == Enum.KeyCode.Escape then B.st.waitSpeedHK = false
+            elseif i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then B.hotkeys.speed.key = nil; B.st.waitSpeedHK = false
+            elseif i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then B.hotkeys.speed.key = i.KeyCode; B.st.waitSpeedHK = false end
             if B.UI.refreshHKLabels then B.UI.refreshHKLabels() end
             return
         end
         if B.st.waitFlyHK then
-            if i.KeyCode == Enum.KeyCode.Escape then
-                B.st.waitFlyHK = false
-            elseif i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then
-                B.hotkeys.fly.key = nil; B.st.waitFlyHK = false
-            elseif i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then
-                B.hotkeys.fly.key = i.KeyCode; B.st.waitFlyHK = false
-            end
+            if i.KeyCode == Enum.KeyCode.Escape then B.st.waitFlyHK = false
+            elseif i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then B.hotkeys.fly.key = nil; B.st.waitFlyHK = false
+            elseif i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then B.hotkeys.fly.key = i.KeyCode; B.st.waitFlyHK = false end
             if B.UI.refreshHKLabels then B.UI.refreshHKLabels() end
             return
         end
         if B.st.toggleWait then
             if i.KeyCode == Enum.KeyCode.Escape then B.st.toggleWait=false; refreshHKLabels(); return end
-            if i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then
-                B.st.toggleWait=false; bindToggleHK(nil); return
-            end
-            if i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then
-                B.st.toggleWait=false; bindToggleHK(i.KeyCode)
-            end
+            if i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then B.st.toggleWait=false; bindToggleHK(nil); return end
+            if i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then B.st.toggleWait=false; bindToggleHK(i.KeyCode) end
+            return
+        end
+        if B.st.listWait then
+            if i.KeyCode == Enum.KeyCode.Escape then B.st.listWait=false; B.UI.refreshListHKBtn(); return end
+            if i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then B.st.listWait=false; B.bindListHK(nil); return end
+            if i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then B.st.listWait=false; B.bindListHK(i.KeyCode) end
             return
         end
         if B.st.stickWait then
             if i.KeyCode == Enum.KeyCode.Escape then B.st.stickWait=false; UI.refreshStickHKBtn(); return end
-            if i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then
-                B.st.stickWait=false; bindStickHK(nil); return
-            end
-            if i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then
-                B.st.stickWait=false; bindStickHK(i.KeyCode)
-            end
+            if i.KeyCode == Enum.KeyCode.Backspace or i.KeyCode == Enum.KeyCode.Delete then B.st.stickWait=false; bindStickHK(nil); return end
+            if i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode ~= Enum.KeyCode.Unknown then B.st.stickWait=false; bindStickHK(i.KeyCode) end
             return
         end
 
@@ -1768,17 +1646,13 @@ do
             if B.st.noclip then enableNoclip() else disableNoclip() end
             B.noclipBusy = false
         end
+        
+        -- 🆕 Hotkey เปิด-ปิดแบบ Real-time (ลบตัวแปร pressed ออก)
         if B.hotkeys.speed.key and i.KeyCode == B.hotkeys.speed.key then
-            if not B.hotkeys.speed.pressed then
-                B.hotkeys.speed.pressed = true
-                toggleSpeed()
-            end
+            toggleSpeed()
         end
         if B.hotkeys.fly.key and i.KeyCode == B.hotkeys.fly.key then
-            if not B.hotkeys.fly.pressed then
-                B.hotkeys.fly.pressed = true
-                toggleFly()
-            end
+            toggleFly()
         end
     end)
 
@@ -1789,8 +1663,6 @@ do
         if i.KeyCode == Enum.KeyCode.D then B.pcK.D = false end
         if i.KeyCode == Enum.KeyCode.Space then B.pcK.Space = false end
         if i.KeyCode == Enum.KeyCode.LeftShift then B.pcK.Shift = false end
-        if B.hotkeys.speed.key and i.KeyCode == B.hotkeys.speed.key then B.hotkeys.speed.pressed = false end
-        if B.hotkeys.fly.key and i.KeyCode == B.hotkeys.fly.key then B.hotkeys.fly.pressed = false end
         if i.UserInputType == Enum.UserInputType.Touch then
             for k in pairs(B.dirs) do B.dirs[k] = false end
         end
@@ -1798,7 +1670,6 @@ do
 
     -- ESP events
     UI.espBtn.MouseButton1Click:Connect(function()
-        if not canT() then return end
         B.st.esp = not B.st.esp
         UI.espBtn.Text = B.st.esp and "มองทะลุ: เปิด" or "มองทะลุ: ปิด"
         UI.espBtn.BackgroundColor3 = B.st.esp and CC.act or CC.bgL
@@ -1823,7 +1694,6 @@ do
         end
     end)
     UI.nameBtn.MouseButton1Click:Connect(function()
-        if not canT() then return end
         B.st.name = not B.st.name
         UI.nameBtn.Text = B.st.name and "เห็นชื่อ: เปิด" or "เห็นชื่อ: ปิด"
         UI.nameBtn.BackgroundColor3 = B.st.name and CC.act or CC.bgL
@@ -1855,11 +1725,12 @@ do
         end
         B.saved.fps = B.st.fps
     end)
+
     UI.toggle.MouseButton1Click:Connect(function()
-        B.st.open = not B.st.open; UI.main.Visible = B.st.open
+        doToggleMenu()
     end)
     closeBtn.MouseButton1Click:Connect(function()
-        UI.main.Visible = false; B.st.open = false
+        doToggleMenu()
     end)
 
     -- Name loop
@@ -1990,8 +1861,22 @@ do
     cT.TextColor3 = CC.txt; cT.Font = Enum.Font.GothamBold; cT.TextSize = S(16)
     cT.Parent = chk
 
+    -- 🆕 ปุ่มตั้งค่า Hotkey รายชื่อ (ย้ายมาไว้ในหน้าต่าง PLAYERS)
+    local hkListRow = Instance.new("Frame")
+    hkListRow.Size = UDim2.new(0.9,0,0,S(34)); hkListRow.Position = UDim2.new(0.05,0,0,S(56))
+    hkListRow.BackgroundTransparency = 1; hkListRow.Parent = chk
+
+    local btnSetListHK = Instance.new("TextButton")
+    btnSetListHK.Size = UDim2.new(1,0,1,0)
+    btnSetListHK.BackgroundColor3 = CC.bgL; btnSetListHK.BackgroundTransparency = 0.5
+    btnSetListHK.Text = "⌨ ตั้งปุ่ม Hotkey เปิด/ปิด เมนูรายชื่อนี้"; btnSetListHK.TextColor3 = CC.txtD
+    btnSetListHK.Font = Enum.Font.GothamMedium; btnSetListHK.TextSize = S(12)
+    btnSetListHK.Parent = hkListRow
+    Instance.new("UICorner", btnSetListHK).CornerRadius = UDim.new(0,8)
+    addGlow(btnSetListHK, 0.7, false)
+
     local sSpec = Instance.new("TextButton")
-    sSpec.Size = UDim2.new(0.9,0,0,S(34)); sSpec.Position = UDim2.new(0.05,0,0,S(60))
+    sSpec.Size = UDim2.new(0.9,0,0,S(34)); sSpec.Position = UDim2.new(0.05,0,0,S(96))
     sSpec.BackgroundColor3 = CC.dgr; sSpec.BackgroundTransparency = 0.3
     sSpec.Text = "ปิดส่องกล้อง"; sSpec.TextColor3 = Color3.fromRGB(255,130,130)
     sSpec.Font = Enum.Font.GothamBold; sSpec.TextSize = S(13)
@@ -1999,8 +1884,8 @@ do
     Instance.new("UICorner", sSpec).CornerRadius = UDim.new(0,10)
 
     local scr = Instance.new("ScrollingFrame")
-    scr.Size = UDim2.new(0.9, 0, 1, -S(102) - S(50))
-    scr.Position = UDim2.new(0.05, 0, 0, S(102))
+    scr.Size = UDim2.new(0.9, 0, 1, -S(138) - S(50))
+    scr.Position = UDim2.new(0.05, 0, 0, S(138))
     scr.BackgroundColor3 = Color3.fromRGB(15,15,20)
     scr.BackgroundTransparency = 0.4
     scr.BorderSizePixel = 0; scr.ScrollBarThickness = 6
@@ -2027,6 +1912,48 @@ do
     cCls.ZIndex = 5
     cCls.Parent = chk
     Instance.new("UICorner", cCls).CornerRadius = UDim.new(0,10)
+
+    -- 🆕 ระบบ Hotkey รายชื่อ (ย้ายมาอยู่หลังสร้าง UI เสร็จ)
+    local function onListHK()
+        if not B.st.alive then return end
+        chk.Visible = not chk.Visible
+        if chk.Visible then 
+            task.wait(0.05)
+            refreshList() 
+        end
+    end
+    local function bindListHK(k)
+        pcall(function() C:UnbindAction(B.LIST_ACT) end)
+        B.st.listHK = k
+        if k then
+            pcall(function()
+                C:BindAction(B.LIST_ACT, function(_, s)
+                    if s == Enum.UserInputState.Begin then onListHK() end
+                    return Enum.ContextActionResult.Pass
+                end, false, k)
+            end)
+        end
+        -- อัปเดตข้อความบนปุ่ม
+        if B.st.listHK then
+            btnSetListHK.Text = "⌨ Hotkey: " .. B.st.listHK.Name
+            btnSetListHK.BackgroundColor3 = Color3.fromRGB(60,140,90)
+        else
+            btnSetListHK.Text = "⌨ ตั้งปุ่ม Hotkey เปิด/ปิด เมนูรายชื่อนี้"
+            btnSetListHK.BackgroundColor3 = CC.bgL
+        end
+    end
+    B.bindListHK = bindListHK
+
+    btnSetListHK.MouseButton1Click:Connect(function()
+        if not shouldShowKeyboardUI() then 
+            UI.toast("⚠️ ต้องต่อคีย์บอร์ดก่อน", Color3.fromRGB(255,180,80)) 
+            return 
+        end
+        B.st.listWait = true
+        B.st.waitSpeedHK = false; B.st.waitFlyHK = false; B.st.stickWait = false; B.st.toggleWait = false
+        btnSetListHK.Text = "⌨ กดปุ่มบนคีย์บอร์ด..."
+        btnSetListHK.BackgroundColor3 = Color3.fromRGB(200,130,40)
+    end)
 
     local function refreshList()
         for _, d in pairs(B.rows) do if d and d.row then d.row:Destroy() end end
@@ -2204,6 +2131,7 @@ do
         if B.conns.stick then B.conns.stick:Disconnect(); B.conns.stick=nil end
         pcall(function() C:UnbindAction(B.STICK_ACT) end)
         pcall(function() C:UnbindAction(B.TOGGLE_ACT) end)
+        pcall(function() C:UnbindAction(B.LIST_ACT) end)
         stopFly(); stopStick(); stopSpec(); disableNoclip()
         if B.st.fps then B.st.fps=false; disableFPS() end
         clearESP(); clearNames()
@@ -2281,6 +2209,6 @@ do
     checkInputNow()
     hkRow.Visible = shouldShowKeyboardUI()
 
-    print("[Boomxico V8.9] โหลดเสร็จ | Device:", dev, "| Scale:", scale,
+    print("[Boomxico V10.1] โหลดเสร็จ | Device:", dev, "| Scale:", scale,
           "| Keyboard:", B.input.hasKeyboard, "| Mouse:", B.input.hasMouse)
 end
