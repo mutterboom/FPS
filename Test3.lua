@@ -1,7 +1,7 @@
 -- ╔═══════════════════════════════════════════════════════════════╗
--- ║  Boomxico V10.1                                               ║
--- ║  🆕 แก้บั๊กบินลอยฟ้า (Clear Velocity & Lock Y-axis)           ║
--- ║  🆕 แก้ Hotkey ดีเลย์ (Real-time Toggle)                      ║
+-- ║  Boomxico V10.2                                               ║
+-- ║  🆕 แก้บั๊กบินกระตุก และดีดขึ้นฟ้าตอนแร็คดอ (ใช้ LinearVelocity)║
+-- ║  🆕 Hotkey ทำงาน Real-time แล้ว                               ║
 -- ║  ฟีเจอร์ครบ: Speed / Fly / ESP / Names / Potato / Auto-Aim   ║
 -- ╚═══════════════════════════════════════════════════════════════╝
 do
@@ -76,23 +76,18 @@ do
     B.conns = {speed=nil, speedRS=nil, speedHB=nil, fly=nil, stick=nil,
                noclip=nil, bodyVel=nil, bodyGyro=nil, animTrack=nil}
 
-    B.STICK_ACT = "BoomStickHK_V101"
-    B.TOGGLE_ACT = "BoomToggleHK_V101"
-    B.LIST_ACT = "BoomListHK_V101"
+    B.STICK_ACT = "BoomStickHK_V102"
+    B.TOGGLE_ACT = "BoomToggleHK_V102"
+    B.LIST_ACT = "BoomListHK_V102"
     pcall(function()
         for _, n in ipairs({"StickTP_Hotkey","StickTP_Hotkey_v13","StickTP_Hotkey_v14",
-                            "BoomStickHK_V87","BoomStickHK_V88","BoomStickHK_V89","BoomStickHK_V895","BoomStickHK_V90","BoomStickHK_V92","BoomStickHK_V100",
-                            "BoomToggleHK_V88","BoomToggleHK_V89","BoomToggleHK_V895","BoomToggleHK_V90","BoomToggleHK_V92","BoomToggleHK_V100",
-                            "BoomListHK_V90","BoomListHK_V92","BoomListHK_V100", B.STICK_ACT, B.TOGGLE_ACT, B.LIST_ACT}) do
+                            "BoomStickHK_V87","BoomStickHK_V88","BoomStickHK_V89","BoomStickHK_V895","BoomStickHK_V90","BoomStickHK_V92","BoomStickHK_V100","BoomStickHK_V101",
+                            "BoomToggleHK_V88","BoomToggleHK_V89","BoomToggleHK_V895","BoomToggleHK_V90","BoomToggleHK_V92","BoomToggleHK_V100","BoomToggleHK_V101",
+                            "BoomListHK_V90","BoomListHK_V92","BoomListHK_V100","BoomListHK_V101", B.STICK_ACT, B.TOGGLE_ACT, B.LIST_ACT}) do
             pcall(function() C:UnbindAction(n) end)
         end
     end)
 
-    -- 🆕 เอาระบบคูลดาวน์ออก ให้ Hotkey ทำงานทันที
-    local function canT()
-        return true
-    end
-    
     local function clamp(v, a, b) if v<a then return a end if v>b then return b end return v end
     local function getHRP(p) if not p or not p.Parent then return nil end local c = p.Character return c and c:FindFirstChild("HumanoidRootPart") end
     local function espColor() return (B.espColors[B.st.espIdx] or B.espColors[1]).c end
@@ -197,7 +192,7 @@ do
         if B.conns.speedHB then B.conns.speedHB:Disconnect(); B.conns.speedHB=nil end
     end
 
-    -- ═══ FLY (แก้บั๊กลอยฟ้า) ═══
+    -- ═══ FLY (แก้บั๊กกระตุก & ลอยฟ้า) ═══
     local function getRunTrack()
         if not B.anim then return nil end
         for _, tr in pairs(B.anim:GetPlayingAnimationTracks()) do
@@ -216,23 +211,21 @@ do
         if B.conns.bodyVel then B.conns.bodyVel:Destroy() end
         if B.conns.bodyGyro then B.conns.bodyGyro:Destroy() end
         
-        -- 🆕 เคลียร์ค่าค้างจากแอนิเมชัน/แร็คดอ
-        if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            hrp.Velocity = Vector3.zero
-            hrp.RotVelocity = Vector3.zero
-        end
-        if hum then
-            hum.PlatformStand = false
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end
-        task.wait(0.05)
+        -- 🆕 ตัดระบบฟิสิกส์ของ Humanoid ทิ้งทันที (แก้เรื่องดีดขึ้นฟ้า)
+        hum.PlatformStand = true
+        
+        -- 🆕 ล้างค่าแรงส่งเดิมทั้งหมด
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
 
-        B.conns.bodyVel = Instance.new("BodyVelocity")
-        B.conns.bodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        B.conns.bodyVel.Velocity = Vector3.zero; B.conns.bodyVel.P = 1250
+        -- 🆕 ใช้ LinearVelocity แทน BodyVelocity (เสถียรกว่า ไม่กระตุก)
+        B.conns.bodyVel = Instance.new("LinearVelocity")
+        B.conns.bodyVel.MaxForce = math.huge
+        B.conns.bodyVel.VectorVelocity = Vector3.zero
+        B.conns.bodyVel.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+        B.conns.bodyVel.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
         B.conns.bodyVel.Parent = hrp
+        B.conns.bodyVel.Attachment0 = hrp.RootAttachment -- ใช้ Attachment ที่มีอยู่แล้วในตัวละคร
         
         B.conns.bodyGyro = Instance.new("BodyGyro")
         B.conns.bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
@@ -240,13 +233,18 @@ do
         B.conns.bodyGyro.CFrame = workspace.CurrentCamera.CFrame
         B.conns.bodyGyro.Parent = hrp
         
-        task.wait(0.1)
-        B.conns.animTrack = getRunTrack()
-        if B.conns.animTrack then
-            B.conns.animTrack.Priority = Enum.AnimationPriority.Action
-            B.conns.animTrack.Looped = true
-            pcall(function() B.conns.animTrack:Play(0.1) end)
-        end
+        -- 🆕 โหลดแอนิเมชันแบบ Background ไม่ให้กระตุก
+        task.spawn(function()
+            task.wait(0.1)
+            if not B.st.fly then return end
+            B.conns.animTrack = getRunTrack()
+            if B.conns.animTrack then
+                B.conns.animTrack.Priority = Enum.AnimationPriority.Action
+                B.conns.animTrack.Looped = true
+                pcall(function() B.conns.animTrack:Play(0.1) end)
+            end
+        end)
+
         if isMobile and B.UI.pad then B.UI.pad.Visible = not (hasKeyboardForFly() or hasMouseForFly()) end
         if B.conns.fly then B.conns.fly:Disconnect() end
         B.conns.fly = R.RenderStepped:Connect(function()
@@ -254,11 +252,8 @@ do
             if not B.conns.bodyVel or not B.conns.bodyGyro or not hrp or not hrp.Parent then return end
             if not hum or not hum.Parent then return end
             
-            -- 🆕 ล็อค State ไว้ไม่ให้ลอยเอง
-            hum.PlatformStand = false
-            if hum:GetState() ~= Enum.HumanoidStateType.Running then
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
+            -- ล็อค State ไว้ไม่ให้ฟิสิกส์เกมแทรก
+            hum.PlatformStand = true
             
             if B.conns.animTrack then
                 if not B.conns.animTrack.IsPlaying then pcall(function() B.conns.animTrack:Play(0.1) end) end
@@ -287,17 +282,17 @@ do
                 if B.pcK.Shift then mv = mv - Vector3.new(0,1,0) end
             end
             
-            -- 🆕 ถ้าไม่ได้กดปุ่มอะไรเลย ให้หยุดนิ่งเป๊ะๆ (ไม่ลอยขึ้น)
+            -- ล็อค Y-axis ไม่ให้ลอยขึ้นเอง
             if mv.Magnitude > 0 then
                 local j = 1 + (math.random()-0.5)*0.03
-                B.conns.bodyVel.Velocity = mv.Unit * B.st.flySpd * j
+                B.conns.bodyVel.VectorVelocity = mv.Unit * B.st.flySpd * j
             else 
-                B.conns.bodyVel.Velocity = Vector3.zero 
-                -- ล็อค Y-axis ไม่ให้ลอย
+                B.conns.bodyVel.VectorVelocity = Vector3.zero 
                 hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z)
             end
         end)
     end
+
     local function stopFly()
         if B.conns.fly then B.conns.fly:Disconnect(); B.conns.fly=nil end
         if B.conns.bodyVel then B.conns.bodyVel:Destroy(); B.conns.bodyVel=nil end
@@ -305,12 +300,10 @@ do
         if B.conns.animTrack then pcall(function() B.conns.animTrack:Stop(0.1) end); B.conns.animTrack=nil end
         
         if hum and hum.Parent == char then
-            -- 🆕 เคลียร์ค่าความเร็วทั้งหมดตอนหยุดบิน
-            if hrp then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end
+            -- คืนค่าฟิสิกส์ปกติ
             hum.PlatformStand = false
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
             if B.st.speed and not B.st.stick then
                 hum.WalkSpeed = B.st.runSpd; stopSpd(); startSpd()
@@ -692,7 +685,7 @@ do
 
     local title = Instance.new("TextButton")
     title.Size = UDim2.new(1,-20,0,S(42)); title.Position = UDim2.new(0,10,0,S(8))
-    title.BackgroundTransparency = 1; title.Text = "BY BOOMXICO V10.1"
+    title.BackgroundTransparency = 1; title.Text = "BY BOOMXICO V10.2"
     title.TextColor3 = CC.txt; title.TextStrokeTransparency = 0.4
     title.TextStrokeColor3 = Color3.fromRGB(0,0,0)
     title.Font = Enum.Font.GothamBold; title.TextSize = S(20)
@@ -2209,6 +2202,6 @@ do
     checkInputNow()
     hkRow.Visible = shouldShowKeyboardUI()
 
-    print("[Boomxico V10.1] โหลดเสร็จ | Device:", dev, "| Scale:", scale,
+    print("[Boomxico V10.2] โหลดเสร็จ | Device:", dev, "| Scale:", scale,
           "| Keyboard:", B.input.hasKeyboard, "| Mouse:", B.input.hasMouse)
 end
